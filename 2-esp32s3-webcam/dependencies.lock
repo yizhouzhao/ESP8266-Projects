@@ -41,6 +41,6 @@ direct_dependencies:
 - espressif/esp32-camera
 - espressif/led_strip
 - idf
-manifest_hash: 81dffd8a49c1174a97618d84fb415b9322cc79b0cb01e960f6d5953a01793a79
+manifest_hash: 7040d819fab61142f08a4c809058d076d71a5e676e7b8eb36b5045d3d3c427d3
 target: esp32s3
 version: 2.0.0
