@@ -24,6 +24,7 @@ static const char* TAG = "camera wifi";
 #include "esp_camera.h"
 #include "camera_pinout.h"
 
+#if ESP_CAMERA_SUPPORTED
 static camera_config_t camera_config = {
     .pin_pwdn = CAM_PIN_PWDN,
     .pin_reset = CAM_PIN_RESET,
@@ -48,29 +49,14 @@ static camera_config_t camera_config = {
     .ledc_timer = LEDC_TIMER_0,
     .ledc_channel = LEDC_CHANNEL_0,
 
-    .pixel_format = PIXFORMAT_JPEG, //YUV422,GRAYSCALE,RGB565,JPEG
+    .pixel_format = PIXFORMAT_RGB565, //YUV422,GRAYSCALE,RGB565,JPEG
     .frame_size = FRAMESIZE_QVGA,    //QQVGA-UXGA, For ESP32, do not use sizes above QVGA when not JPEG. The performance of the ESP32-S series has improved a lot, but JPEG mode always gives better frame rates.
 
     .jpeg_quality = 12, //0-63, for OV series camera sensors, lower number means higher quality
-    .fb_count = 2,       //When jpeg mode is used, if fb_count more than one, the driver will work in continuous mode.
+    .fb_count = 1,       //When jpeg mode is used, if fb_count more than one, the driver will work in continuous mode.
     .fb_location = CAMERA_FB_IN_PSRAM,
     .grab_mode = CAMERA_GRAB_WHEN_EMPTY,
 };
-
-//UVC Definitions 
-//!!!!!!
-#include "usb_device_uvc.h"
-#include "uvc_frame_config.h"
-
-#define UVC_MAX_FRAMESIZE_SIZE     (60*1024)
-
-typedef struct {
-    camera_fb_t *cam_fb_p;
-    uvc_fb_t uvc_fb;
-} fb_t;
-
-static fb_t s_fb;
-
 
 static esp_err_t init_camera(void)
 {
@@ -92,89 +78,7 @@ static esp_err_t init_camera(void)
 
     return ESP_OK;
 }
-
-static esp_err_t camera_start_cb(uvc_format_t format, int width, int height, int rate, void *cb_ctx)
-{
-    (void)cb_ctx;
-    ESP_LOGI(TAG, "Camera Start");
-    ESP_LOGI(TAG, "Format: %d, width: %d, height: %d, rate: %d", format, width, height, rate);
-    framesize_t frame_size = FRAMESIZE_QVGA;
-    int jpeg_quality = 14;
-
-    if (format != UVC_FORMAT_JPEG) {
-        ESP_LOGE(TAG, "Only support MJPEG format");
-        return ESP_ERR_NOT_SUPPORTED;
-    }
-
-    if (width == 320 && height == 240) {
-        frame_size = FRAMESIZE_QVGA;
-        jpeg_quality = 10;
-    } else if (width == 480 && height == 320) {
-        frame_size = FRAMESIZE_HVGA;
-        jpeg_quality = 10;
-    } else if (width == 640 && height == 480) {
-        frame_size = FRAMESIZE_VGA;
-        jpeg_quality = 12;
-    } else if (width == 800 && height == 600) {
-        frame_size = FRAMESIZE_SVGA;
-        jpeg_quality = 14;
-    } else if (width == 1280 && height == 720) {
-        frame_size = FRAMESIZE_HD;
-        jpeg_quality = 16;
-    } else if (width == 1920 && height == 1080) {
-        frame_size = FRAMESIZE_FHD;
-        jpeg_quality = 16;
-    } else {
-        ESP_LOGE(TAG, "Unsupported frame size %dx%d", width, height);
-        return ESP_ERR_NOT_SUPPORTED;
-    }
-
-    //esp_err_t ret = camera_init(CAMERA_XCLK_FREQ, PIXFORMAT_JPEG, frame_size, jpeg_quality, CAMERA_FB_COUNT);
-    esp_err_t ret = init_camera();
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "camera init failed");
-        return ret;
-    }
-
-    return ESP_OK;
-}
-
-static void camera_stop_cb(void *cb_ctx)
-{
-    (void)cb_ctx;
-    ESP_LOGI(TAG, "Camera Stop");
-}
-
-static void camera_fb_return_cb(uvc_fb_t *fb, void *cb_ctx)
-{
-    (void)cb_ctx;
-    assert(fb == &s_fb.uvc_fb);
-    esp_camera_fb_return(s_fb.cam_fb_p);
-}
-
-static uvc_fb_t* camera_fb_get_cb(void *cb_ctx)
-{
-    (void)cb_ctx;
-    s_fb.cam_fb_p = esp_camera_fb_get();
-    if (!s_fb.cam_fb_p) {
-        return NULL;
-    }
-    s_fb.uvc_fb.buf = s_fb.cam_fb_p->buf;
-    s_fb.uvc_fb.len = s_fb.cam_fb_p->len;
-    s_fb.uvc_fb.width = s_fb.cam_fb_p->width;
-    s_fb.uvc_fb.height = s_fb.cam_fb_p->height;
-    s_fb.uvc_fb.format = s_fb.cam_fb_p->format;
-    s_fb.uvc_fb.timestamp = s_fb.cam_fb_p->timestamp;
-
-    if (s_fb.uvc_fb.len > UVC_MAX_FRAMESIZE_SIZE) {
-        ESP_LOGE(TAG, "Frame size %d is larger than max frame size %d", s_fb.uvc_fb.len, UVC_MAX_FRAMESIZE_SIZE);
-        esp_camera_fb_return(s_fb.cam_fb_p);
-        return NULL;
-    }
-    return &s_fb.uvc_fb;
-}
-
-// END UVC Definitions
+#endif
 
 typedef struct {
         httpd_req_t *req;
@@ -366,8 +270,8 @@ httpd_handle_t start_webserver(void) {
 // **********
 // **********
 #define BLINK_GPIO CONFIG_BLINK_GPIO
-#define EXAMPLE_ESP_WIFI_SSID      "EggFooYoung-2.4"
-#define EXAMPLE_ESP_WIFI_PASS      "furongdan"
+#define EXAMPLE_ESP_WIFI_SSID      CONFIG_ESP_WIFI_SSID
+#define EXAMPLE_ESP_WIFI_PASS      CONFIG_ESP_WIFI_PASSWORD
 #define EXAMPLE_ESP_MAXIMUM_RETRY  CONFIG_ESP_MAXIMUM_RETRY
 
 #if CONFIG_ESP_STATION_EXAMPLE_WPA3_SAE_PWE_BOTH
@@ -506,46 +410,25 @@ void app_main(void)
     }
     ESP_ERROR_CHECK(ret);
 
-    uint8_t *uvc_buffer = (uint8_t *)malloc(UVC_MAX_FRAMESIZE_SIZE);
-    if (uvc_buffer == NULL) {
-        ESP_LOGE(TAG, "malloc frame buffer fail");
+
+        //Initialize the camera
+#if ESP_CAMERA_SUPPORTED
+    if(ESP_OK != init_camera()) {
         return;
     }
+#else
+    ESP_LOGE(TAG, "Camera support is not available for this chip");
+    return;
+#endif
 
-    uvc_device_config_t config = {
-        .uvc_buffer = uvc_buffer,
-        .uvc_buffer_size = UVC_MAX_FRAMESIZE_SIZE,
-        .start_cb = camera_start_cb,
-        .fb_get_cb = camera_fb_get_cb,
-        .fb_return_cb = camera_fb_return_cb,
-        .stop_cb = camera_stop_cb,
-    };
+    //Initialize Wi-Fi
+    ESP_LOGI(TAG, "ESP_WIFI_MODE_STA");
+    wifi_init_sta();
 
-    ESP_LOGI(TAG, "Format List");
-    ESP_LOGI(TAG, "\tFormat(1) = %s", "MJPEG");
-    ESP_LOGI(TAG, "Frame List");
-    ESP_LOGI(TAG, "\tFrame(1) = %d * %d @%dfps", UVC_FRAMES_INFO[0][0].width, UVC_FRAMES_INFO[0][0].height, UVC_FRAMES_INFO[0][0].rate);
 
-    ESP_ERROR_CHECK(uvc_device_config(0, &config));
-    ESP_ERROR_CHECK(uvc_device_init());
-
-//         //Initialize the camera
-// #if ESP_CAMERA_SUPPORTED
-//     if(ESP_OK != init_camera()) {
-//         return;
-//     }
-// #else
-//     ESP_LOGE(TAG, "Camera support is not available for this chip");
-//     return;
-// #endif
-
-//     //Initialize Wi-Fi
-//     ESP_LOGI(TAG, "ESP_WIFI_MODE_STA");
-//     wifi_init_sta();
-
-//     //Start the web server
-//     ESP_LOGI(TAG, "Starting web server...");
-//     start_webserver();
+    //Start the web server
+    ESP_LOGI(TAG, "Starting web server...");
+    start_webserver();
 
     /* Configure the peripheral according to the LED type */
     configure_led();
