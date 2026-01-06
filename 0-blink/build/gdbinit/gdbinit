@@ -1,0 +1,2 @@
+source /Users/yizhouzhao/Documents/Github/ESP-Projects/0-blink/build/gdbinit/symbols
+source /Users/yizhouzhao/Documents/Github/ESP-Projects/0-blink/build/gdbinit/connect
